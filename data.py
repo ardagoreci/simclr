@@ -13,8 +13,44 @@ from absl import logging
 import data_util
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
+from tensorflow.keras.applications import resnet_v2
 
 FLAGS = flags.FLAGS
+
+
+def build_simple_input_fn(builder, global_batch_size, topology, is_training):
+    """Build simple input function.
+
+      Args:
+        builder: TFDS builder for specified dataset.
+        global_batch_size: Global batch size.
+        topology: An instance of `tf.tpu.experimental.Topology` or None.
+        is_training: Whether to build in training mode.
+
+      Returns:
+        A function that accepts a dict of params and returns a tuple of images and
+        features, to be used as a unit test, does not implement any data augmentation
+      """
+
+    def _input_fn(input_context):
+        batch_size = global_batch_size
+
+        def _map_fn(image, label):
+            image = tf.cast(image, dtype=tf.float16)
+            image = resnet_v2.preprocess_input(image)
+            return image, label
+
+        dataset = builder.as_dataset(
+            split='train' if is_training else 'test',
+            batch_size=batch_size,
+            as_supervised=True,
+        )
+        dataset = dataset.map(_map_fn, num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.batch(batch_size, drop_remainder=is_training)
+        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        return dataset
+
+    return _input_fn
 
 
 def build_input_fn(builder, global_batch_size, topology, is_training):
